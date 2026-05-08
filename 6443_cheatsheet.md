@@ -2,6 +2,7 @@
 
 
 Some revision notes prepared for final quiz.
+This note source(github page XSS triggered): https://github.com/snow-swallow/snow-swallow.github.io/blob/main/6443_cheatsheet.md
 
 # Online tools
 
