@@ -7,4 +7,6 @@ layout: post
 
 Index
 
-[6443_cheatsheet](https://snow-swallow.github.io/6443_cheatsheet)
+---
+
+[6443 cheatsheet](https://snow-swallow.github.io/6443_cheatsheet){:target="_blank"}
