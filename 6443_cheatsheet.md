@@ -203,9 +203,9 @@ fetch('/reports').then(r=>r.text()).then(h=>report('REPORTS_LIST', h));
 
 
 ## CSP
-payloads:
-https://www.vaadata.com/en/blog/content-security-policy-bypass-techniques-and-security-best-practices/
-
+Bypass payloads:
+- https://www.vaadata.com/en/blog/content-security-policy-bypass-techniques-and-security-best-practices/
+- https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/XSS%20Injection/4%20-%20CSP%20Bypass.md
 
 | CSP第一个词  | 值 | 支持 |
 | ------------ | -------------- | ---------- |
