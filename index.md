@@ -9,4 +9,4 @@ Index
 
 ---
 
-[6443 cheatsheet](https://snow-swallow.github.io/6443_cheatsheet){:target="_blank"}
+[6443 cheatsheet](https://snow-swallow.github.io/6443_cheatsheet){:target="_blank" rel="noopener"}
