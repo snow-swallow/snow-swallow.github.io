@@ -3,6 +3,8 @@
 
 Some revision notes prepared for final quiz.
 
+# Online tools
+
 - hash analyze: https://www.tunnelsup.com/hash-analyzer/
 - md5 / hash: https://crackstation.net/
 - jwt: https://www.jwt.io/
@@ -10,12 +12,8 @@ Some revision notes prepared for final quiz.
 https://webhook.site/#!/view/da05aa34-93fb-4cfc-96f0-7f5028b6f4c8
 
 
-OSS
-==VPS==
-
-
 # 常见flag文件 ‼️
-==`/flag`, `/flag.txt`, `/getflag` - in CTF context==
+`/flag`, `/flag.txt`, `/getflag` - in CTF context
 ```
 /etc/passwd
 /proc/self/environ
@@ -33,6 +31,7 @@ index.js
 
 
 # Signal
+
 | Signal                           | Think                              |
 | -------------------------------- | ---------------------------------- |
 | login form                       | AuthN bypass, SQLi, username enum  |
