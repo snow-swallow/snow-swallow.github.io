@@ -764,3 +764,443 @@ $r(3) = 0.8(\tfrac12 r(2) + \tfrac13 r(3)) + \tfrac{0.2}{3}$
 
 
 
+
+
+
+
+# COMP9313 简答题 Q&A · 中英对照速记
+
+> **用法**：英文答案是**可以直接抄到卷子上的成品**，长度按考试实际需要控制在 3–5 句。中文部分是理解和记忆用的，考场上不写。
+> **加粗的英文短语是采分点**，背不下整段就背这些词。
+
+---
+
+# Part A · 核心 12 题（老师圈的简答题范围）
+
+---
+
+## ① MapReduce 数据流 · MapReduce Data Flow
+
+**Q:** *Describe the data flow of a MapReduce job.*
+
+**A (English):**
+
+> The input file on HDFS is divided into **input splits**, normally one split per block, and one **map task** is launched per split, preferably on a node that already stores that block (**data locality**). Each map task calls `map(k1, v1)` once per record and emits intermediate `(k2, v2)` pairs, which are sorted by key and written to the mapper's **local disk** — not to HDFS.
+>
+> An optional **combiner** performs local aggregation on this output to reduce its size and save network I/O. The **partitioner** then assigns each key to one of the R reducers, typically by `hash(k2) mod R`, guaranteeing that all values of a key reach the same reducer.
+>
+> During **shuffle and sort**, each reducer fetches its partition from every mapper and merges them into one key-sorted sequence. The reducer calls `reduce(k2, [v2])` once per distinct key and writes the final `(k3, v3)` pairs **back to HDFS**.
+
+**中文要点**
+
+顺序：**split → map → 本地排序落盘 → combiner → partitioner → shuffle & sort → reduce → 写回 HDFS**。
+必提三点：中间结果写**本地磁盘**（失败重跑即可，不需副本）、**data locality**（把计算搬到数据旁边）、`hash(k) mod R`。
+补充：**mapper 数量由框架按 split 决定，reducer 数量由程序员指定**。
+
+---
+
+## ② Spark 数据流 · Spark Data Flow
+
+**Q:** *Describe how a Spark job is executed.*
+
+**A (English):**
+
+> Spark operations are divided into **transformations** and **actions**. Transformations are **lazily evaluated**: they only record the **lineage**, and nothing is computed until an action is called.
+>
+> When an action is invoked, Spark creates a **job** and builds a **DAG** of RDD dependencies. It walks the DAG backwards and cuts it at every **wide dependency**, because a wide dependency requires a **shuffle**. Each maximal chain of narrow dependencies becomes a **stage**.
+>
+> Within a stage, one **task** is created per partition, and these tasks run in parallel on the executors; the transformations inside a stage are **pipelined** within a single task. Stages are executed in dependency order.
+
+**中文要点**
+
+口诀：**action 出 job，shuffle 切 stage，partition 定 task**。
+大小关**task < stage < job < application**。
+
+---
+
+## ③ MapReduce vs Spark
+
+**Q:** *Compare MapReduce and Spark.*
+
+**A (English):**
+
+> 1. **Intermediate data**: MapReduce writes intermediate results to **disk** and re-reads them; Spark keeps them **in memory** whenever possible.
+> 2. **Iterative algorithms**: MapReduce needs **one job per iteration**, each re-reading and re-writing HDFS; Spark expresses the whole computation as a **single DAG** inside one application, and reusable RDDs can be **cached**.
+> 3. **Fault tolerance**: MapReduce **re-runs failed tasks** using the replicated data on HDFS; Spark uses **lineage** to recompute only the lost partitions, without storing replicas.
+> 4. **Programming model**: MapReduce offers only `map` and `reduce`; Spark provides a **rich set of operators** plus lazy evaluation, which allows the engine to optimise across steps.
+>
+> As a result Spark is typically an order of magnitude faster for **iterative** workloads such as PageRank or parallel BFS, while MapReduce remains competitive for single-pass batch jobs over very large data.
+
+**中文要点**
+
+四条：**磁盘 vs 内存 / 多作业 vs 一个 DAG / 重跑 vs lineage / 算子少 vs 算子丰富**。
+最后那句"迭代算法差距最大"是加分点，可以顺手举 PageRank 和 BFS。
+
+---
+
+## ④ Combiner 判定 · 求平均 · Combiner Applicability
+
+**Q:** *When can a combiner be used? Why can it not be used directly to compute an average?*
+
+**A (English):**
+
+> A combiner performs **local aggregation** on a mapper's output before the shuffle, reducing the volume of data sent over the network. It can be used when the aggregation function is **commutative and associative** (e.g. `sum`, `max`, `min`, `count`), and when the combiner's **input and output types are identical to the mapper's output type**, since the combiner's output is fed to the reducer.
+>
+> Crucially, the framework may run the combiner **zero, one, or several times** on any subset of the data, so the job must produce **exactly the same result whether or not the combiner runs**.
+>
+> The average is **not associative**: `avg(avg(1,2), avg(3)) = 2.25 ≠ avg(1,2,3) = 2`. The standard solution is to change the value type to a **partial aggregate `(sum, count)`**; the combiner adds the sums and the counts component-wise, and only the reducer performs the final division.
+
+**中文要点**
+
+三条铁律：**交换律 + 结合律**、**类型一致**、**跑 0/1/多次结果不变**。
+求平均反例背下来：`avg(avg(1,2), avg(3)) = 2.25 ≠ 2`。
+
+**追问：外部 combiner vs in-mapper combining？**
+
+> An **external combiner** is a separate class invoked by the framework at its discretion — it saves network traffic but the mapper still writes all its output to local disk first, and it **may not run at all**. **In-mapper combining** keeps an associative array in memory: `map_init` creates the dictionary, `map` accumulates into it, and `map_final` emits the aggregated results. It is **guaranteed to run** and avoids generating the intermediate records altogether, but it **may run out of memory** if the key space is large, so the dictionary must be flushed periodically.
+
+---
+
+## ⑤ Order Inversion 与 Value-to-Key · Design Patterns
+
+**Q:** *Explain the order inversion and value-to-key design patterns.*
+
+**A (English):**
+
+> **Order inversion** is used when a reducer needs an aggregate statistic (such as a marginal total) **before** it can process the individual records — for example when computing relative frequencies. The mapper emits an **additional special key** (e.g. `(w, *)`) carrying the partial total. A custom **key comparator** makes the special key sort **first**, and a custom **partitioner** based on the **natural key** ensures the special key reaches the **same reducer** as the corresponding records. The reducer therefore receives the total before the details and does not need to buffer them.
+>
+> **Value-to-key conversion** moves a field that must be sorted **into the key**, so that the framework's sort delivers the values to the reducer in the required order. The reducer can then process the group as a **stream** instead of loading all values into memory and sorting them itself.
+>
+> Both patterns require the same three ingredients: a **composite key**, a **custom key comparator**, and a **custom partitioner on the natural key** (plus a grouping comparator if one `reduce` call per natural key is required).
+
+**中文要点**
+
+**OI = 让"总量"先到**；**V2K = 让框架代替你排序**。
+共同三件套：**组合键 + comparator + partitioner**。partitioner 必须只按**自然键**分区，漏了这条多 reducer 时结果就错。
+
+---
+
+## ⑥ 惰性求值与 Action · Lazy Evaluation
+
+**Q:** *What is lazy evaluation in Spark and why is it useful?*
+
+**A (English):**
+
+> Transformations such as `map`, `filter` and `reduceByKey` do not compute anything when they are called; they only **record the lineage** of how the new RDD is derived from its parent. Computation is triggered only when an **action** (e.g. `collect`, `count`, `saveAsTextFile`) is invoked.
+>
+> This gives Spark the whole computation graph before execution begins, so it can **optimise globally** — pipelining consecutive narrow transformations into a single pass over the data, pruning unused columns or partitions, and avoiding the materialisation of intermediate results.
+>
+> A typical consequence is that a program appears to run instantly through many transformations and then spends all of its time in the first action, because that action triggers **the entire computation, the shuffle, and the disk I/O** at once.
+
+**中文要点**
+
+好处两条：**能做全局优化**、**不产生无用中间结果**。
+经典陷阱题：前面几十行秒过、`saveAsTextFile` 卡很久 —— 因为前面根本没算。
+
+---
+
+## ⑦ 容错机制 · Fault Tolerance
+
+**Q:** *Compare fault tolerance in MapReduce and in Spark.*
+
+**A (English):**
+
+> **MapReduce** relies on **replication and re-execution**. Input and output live on HDFS with a replication factor of 3, and intermediate map output is written to **local disk**. If a task fails, the framework simply **re-runs that task** on another node; if a node is slow, **speculative execution** launches a duplicate copy.
+>
+> **Spark** relies on **lineage**. Every RDD is **immutable** and records which parent RDD and which transformation produced it, so when a partition is lost Spark **recomputes just that partition** by replaying its lineage — no data replicas are kept.
+>
+> The cost of recovery depends on the dependency type: for a **narrow** dependency only a **single parent partition** must be recomputed, whereas for a **wide** dependency the lost partition depends on **all** parent partitions and recovery is far more expensive. Long lineages, or lineages containing wide dependencies, are therefore usually truncated with `cache()`/`persist()` or `checkpoint()`.
+
+**中文要点**
+
+MR = **重跑 + 副本 + 推测执行**；Spark = **血统重算，只算丢的那块**。
+最后那段"窄依赖便宜、宽依赖贵、所以要 cache/checkpoint"是高分点。
+
+---
+
+## ⑧ 共享数据结构：set 与 broadcast · Shared Read-Only Data
+
+**Q:** *Why use a set for lookups, and why broadcast it?*
+
+**A (English):**
+
+> **Why a set (or dictionary):** membership testing in a hash set is **O(1)** on average, whereas scanning a list is **O(N)**. Since the lookup is performed **once per record**, over millions of records the difference is multiplied by the size of the dataset and dominates the running time.
+>
+> **Why broadcast:** if the table is referenced directly it is **serialised into the closure of every task**, so with thousands of tasks the same data is shipped over the network thousands of times. `sc.broadcast(x)` sends the data **once per executor** and caches it there; the tasks read it via `bv.value`. This saves both network bandwidth and executor memory.
+>
+> The requirements are that the data must be **read-only** and small enough to **fit in each executor's memory**.
+>
+> **Example (Project 3):** the globally frequency-ordered token list is broadcast to every executor, so each record can locally sort its own tokens by global frequency before computing its prefix. **(Project 2)** broadcasts a stop-word **set** used to filter tokens.
+
+**中文要点**
+
+set 快在**哈希 O(1)**；broadcast 省在**按 executor 发一份，不是按 task**。
+两个限制：**只读**、**装得下内存**。
+
+---
+
+## ⑨ 宽窄依赖与 Stage 划分 · Narrow vs Wide Dependencies
+
+**Q:** *Distinguish narrow and wide dependencies and explain how Spark divides a job into stages.*
+
+**A (English):**
+
+> In a **narrow dependency** each partition of the parent RDD is used by **at most one** partition of the child — e.g. `map`, `filter`, `mapValues`, `union`, or a join on **co-partitioned** RDDs. These can be **pipelined**: several such transformations execute inside one task, on one partition, with no network traffic.
+>
+> In a **wide dependency** a child partition depends on **many or all** partitions of the parent — e.g. `groupByKey`, `reduceByKey`, `sortByKey`, `distinct`, or a join on non-co-partitioned RDDs. Data must be redistributed across the cluster, which requires a **shuffle**.
+>
+> To build the execution plan Spark starts from the action and traverses the DAG **backwards**, **cutting it at every wide dependency**. Each maximal chain of consecutive narrow dependencies forms one **stage**; inside a stage one **task** is created per partition, and stages are then executed in dependency order.
+
+**中文要点**
+
+判定标准的原话：**"at most one" vs "many or all"**。
+划分口诀：**从 action 反向回溯，遇宽依赖切一刀**。
+
+---
+
+## ⑩ reduceByKey vs groupByKey
+
+**Q:** *What is the difference between `reduceByKey` and `groupByKey`? Which should be preferred?*
+
+**A (English):**
+
+> Both are **transformations** and both cause a **shuffle**, but they differ in *what* is shuffled. `reduceByKey` applies the aggregation function **locally on the map side first** — effectively an automatic combiner — so only **one partially aggregated value per key per partition** crosses the network. `groupByKey` transfers **every individual value** and groups them at the reducer.
+>
+> `reduceByKey` is therefore preferred whenever the operation can be expressed as an **associative and commutative** aggregation: it moves far less data, and it avoids the risk that a single heavily skewed key produces a value list too large to fit in one executor's memory, which can make `groupByKey` fail with an **out-of-memory error**.
+>
+> `groupByKey` is only appropriate when the whole collection of raw values is genuinely required, for instance to compute a median or to sort the values within a group. `aggregateByKey` and `combineByKey` offer the same map-side benefit when the output type differs from the input type.
+
+**中文要点**
+
+一句话：**reduceByKey 先在 map 端聚合再传，groupByKey 把原始 value 全搬过去**。
+风险点：groupByKey 遇到**数据倾斜的大 key** 会 OOM。
+
+---
+
+## ⑪ 广播变量 vs 累加器 · Broadcast vs Accumulator
+
+**Q:** *Compare broadcast variables and accumulators.*
+
+**A (English):**
+
+> Both are Spark's **shared variables**, but they move in **opposite directions**.
+>
+> A **broadcast variable** goes **from the driver to the executors** and is **read-only**: `bv = sc.broadcast(table)` ships the value once per executor, and tasks read it with `bv.value`. It is used for lookup tables, dictionaries and stop-word lists.
+>
+> An **accumulator** goes **from the executors back to the driver** and is effectively **write-only on the workers**: tasks may only add to it (`acc += 1`), and **only the driver may read `acc.value`**. It is used for counters and sums, such as counting malformed records.
+>
+> A common pitfall: an accumulator updated inside a **transformation** is only reliable if that RDD is cached, because a failed or **speculatively executed** task may recompute the partition and **count twice**. Updates performed inside an **action** are guaranteed to be counted exactly once. Also, reading `acc.value` before any action has run returns **0**, since transformations are lazy.
+
+**中文要点**
+
+方向相反：**broadcast = driver→executor 只读**；**accumulator = executor→driver 只写，只有 driver 能读 `.value`**。
+两个陷阱：**没 action 时读出来是 0**；**transformation 里累加可能重复计数**。
+
+---
+
+## ⑫ 不可变 / 血统 / cache · Immutability, Lineage and Caching
+
+**Q:** *Explain the relationship between RDD immutability, lineage and caching.*
+
+**A (English):**
+
+> An RDD is **immutable**: every transformation produces a **new** RDD rather than modifying the existing one. This is what makes it safe to record a **lineage** — the graph of which parent RDD and which transformation each RDD came from — because a parent can never change after the fact. Recomputation is therefore **deterministic**, which is what allows Spark to recover a lost partition by replaying its lineage instead of storing replicas.
+>
+> The price of this design is that an RDD is **recomputed from the beginning of its lineage every time an action is called on it**. `cache()` / `persist()` materialise the RDD in memory so that subsequent actions reuse it directly; this is essential for **iterative algorithms** and for any RDD used by more than one action. Caching is itself **lazy** — the data is stored during the first action that computes it — and a cached partition that is evicted or lost can still be rebuilt from the lineage.
+>
+> `checkpoint()` is different: it writes the RDD to reliable storage such as HDFS and **truncates the lineage**, which is used when the lineage has grown very long (for example over many iterations) and replaying it would be too expensive.
+
+**中文要点**
+
+因果链：**不可变 → 血统可靠 → 丢分区能确定性重算 → 不用存副本**。
+代价：**每次 action 都从头重算** → 所以复用/迭代的 RDD 要 `cache()`。
+`cache` 是**惰性**的、丢了还能靠血统重来；`checkpoint` 写 HDFS 并**切断血统**。
+
+---
+
+# Part B · 其他高频概念小问
+
+---
+
+## B1. Combiner 与 Reducer 何时可以是同一个类？
+
+**Q:** *When can the reducer class be reused as the combiner?*
+
+> When the reduce function is **commutative and associative** and its **output type equals its input value type** — for example summation, max, min, or counting. Under those conditions applying the function to partial groups and then to the partial results yields the same answer as applying it once to the whole group.
+
+---
+
+## B2. Grouping comparator 有什么用？
+
+**Q:** *What is a grouping comparator used for?*
+
+> When a **composite key** is used, the framework would by default call `reduce` once per **distinct composite key**. A **grouping comparator** tells it to group by the **natural key** only, so that one `reduce` call receives all records of the natural key, still delivered in the order imposed by the key comparator. It is what makes **secondary sort** usable.
+
+---
+
+## B3. 为什么 Dijkstra 不能直接用 MapReduce 实现？
+
+**Q:** *Why can Dijkstra's algorithm not be implemented directly in MapReduce?*
+
+> Dijkstra maintains a **global priority queue** from which the closest unvisited vertex is extracted at each step. This is **shared mutable state** that must be read and updated in a strict sequential order, whereas MapReduce tasks are **isolated** and share no state. The parallel BFS alternative instead relaxes **every edge in every iteration**, which is embarrassingly parallel but performs redundant work.
+
+---
+
+## B4. 并行 BFS 什么时候停？
+
+**Q:** *State the termination condition of the iterative parallel BFS.*
+
+> The algorithm terminates when **a complete iteration passes without any vertex's distance being updated**. This is detected with a **counter**: each reducer increments it whenever it writes a smaller distance, and the **driver** reads the counter after each job — when it is **zero**, the computation has converged.
+
+---
+
+## B5. 为什么 BFS 的 mapper 要重新发送邻接表？
+
+**Q:** *Why must the mapper re-emit the adjacency list in every iteration?*
+
+> Each iteration is a **separate MapReduce job** that reads only the output file of the previous iteration; the framework keeps no state between jobs. If the mapper emitted only the distance messages, the reducer would have no adjacency information to write out, and the graph structure would be **lost after the first iteration**. The structure message is therefore emitted with the vertex's **own ID as key**, and it must also carry the vertex's **current distance**, otherwise a vertex that receives no distance message would be reset to infinity.
+
+---
+
+## B6. Dead end 和 Spider trap
+
+**Q:** *What are dead ends and spider traps, and how does teleportation solve them?*
+
+> A **dead end** is a page with **no outgoing links**. Its rank cannot be passed on, so probability mass **leaks out** of the system and the total rank falls below 1. A **spider trap** is a group of pages whose out-links all point **within the group**; the random walk enters and never leaves, so the group eventually absorbs **all** the rank.
+>
+> **Teleportation** gives the random surfer a probability $1 - \beta$ of jumping to a **uniformly random page** at every step instead of following a link. This guarantees the walk can escape a spider trap. Dead ends are handled separately by **redistributing their rank uniformly over all N pages** (equivalently, treating them as if they linked to every page), which restores the total to 1.
+
+---
+
+## B7. 为什么不显式构造 Google matrix？
+
+**Q:** *Why is the Google matrix never constructed explicitly?*
+
+> $A = \beta M + (1-\beta)\left[\frac1N\right]_{N\times N}$ is a **dense** matrix: adding $\frac{1-\beta}{N}$ to every entry destroys the sparsity of $M$, so storing $A$ would require $O(N^2)$ space, which is impossible for a web graph with billions of pages. Instead the teleport term is factored out algebraically and computed as a **scalar addition**: $r_j = \beta \sum_{i \to j} r_i / d_i + \frac{1-\beta}{N}$. Only the **sparse** matrix $M$ is ever stored.
+
+---
+
+## B8. 为什么 heavy hitter 没有精确的一趟算法？
+
+**Q:** *Why is there no exact one-pass sublinear-space algorithm for heavy hitters?*
+
+> To report exactly which elements exceed $n/k$, an algorithm would have to distinguish among all possible elements at the end of the stream; an adversary can construct streams that differ only in the last item, so any exact algorithm must effectively retain information about **every distinct element seen**, which requires **linear** space. Approximation algorithms therefore relax the requirement: they report every element with count $> n/k$ (**no false negatives**) but may also report some elements below the threshold (**false positives allowed**).
+
+---
+
+## B9. Misra-Gries / Lossy Counting / Count-Min 的区别
+
+**Q:** *Compare Misra-Gries, Lossy Counting and Count-Min Sketch.*
+
+> **Misra-Gries** keeps $k-1$ counters; when a new item arrives and all counters are occupied, it **decrements every counter by one** and drops those that reach zero (the arriving item is **not** inserted). **Lossy Counting** divides the stream into windows of $1/\varepsilon$ items and decrements **every counter at the end of each window**. Both produce **under-estimates**, with error at most $n/k$ and $\varepsilon n$ respectively, and both may contain **false positives**, so a second pass is needed for exact counts.
+>
+> **Count-Min Sketch** uses a $d \times w$ array of counters with $d$ hash functions; it **never decrements**, and a query returns the **minimum** of the $d$ cells. Collisions can only add extra weight, so a Count-Min estimate is always an **over-estimate**.
+
+---
+
+## B10. Bloom filter 为什么有假阳性但没有假阴性？
+
+**Q:** *Why does a Bloom filter have false positives but no false negatives?*
+
+> When an element is inserted, all $k$ of its bits are set to 1 and bits are **never cleared**. Therefore at query time every bit of an inserted element is still 1 and the filter always returns "possibly present" — there can be **no false negatives**. A **false positive** occurs when the $k$ bits of a non-member happen to have all been set by **other** elements. Deletion is not supported for the same reason: clearing bits could break other elements, introducing false negatives; a **Counting Bloom Filter** replaces bits with counters to allow deletion at the cost of extra memory.
+
+---
+
+## B11. DGIM 为什么最老的桶只算一半？
+
+**Q:** *In DGIM, why is only half of the oldest bucket counted?*
+
+> Each bucket's timestamp records the position of its **most recent** 1, so the bucket is known to end inside the window but its **earlier** 1s may already have expired. Since DGIM does not store the individual positions, it assumes on average that **half** of the oldest bucket's 1s remain in the window. Because bucket sizes are powers of two and the sizes of all newer buckets sum to at least $2^r - 1$ when the oldest has size $2^r$, the resulting relative error is bounded by **50 %**.
+
+---
+
+## B12. MinHash 的核心性质
+
+**Q:** *State and explain the key property of MinHash.*
+
+> For a random permutation $\pi$ of the rows, $\Pr[\,h_\pi(C_1) = h_\pi(C_2)\,] = J(C_1, C_2)$, i.e. the probability that two columns receive the same MinHash value equals their **Jaccard similarity**. The reason is that the first row (under $\pi$) in which either column has a 1 is equally likely to be any row of the union $C_1 \cup C_2$; the two signatures agree exactly when that row lies in the **intersection**. Consequently the **fraction of rows in which two signature columns agree** is an unbiased estimator of their Jaccard similarity, and the estimate improves as the number of hash functions increases.
+
+---
+
+## B13. LSH 的 b 和 r 怎么权衡？
+
+**Q:** *How do b and r affect the LSH S-curve?*
+
+> With $b$ bands of $r$ rows, a pair with similarity $s$ becomes a candidate with probability $1 - (1 - s^r)^b$, and the threshold is approximately $t \approx (1/b)^{1/r}$. Increasing $r$ (with $b \times r = K$ fixed) makes each band **harder** to match, moving the threshold **to the right**: **fewer false positives but more false negatives**. Decreasing $r$ has the opposite effect. The parameters are chosen so that the steep part of the S-curve sits at the similarity threshold the application cares about.
+
+---
+
+## B14. 为什么 prefix filtering 要按频率升序排？
+
+**Q:** *Why are tokens sorted by increasing global frequency in prefix filtering?*
+
+> The prefix consists of the **first** $n - \lceil s \cdot n \rceil + 1$ tokens under a **globally consistent order**. Placing the **rarest** tokens first means the prefixes contain low-frequency tokens, so far fewer pairs share a prefix token and the number of candidate pairs generated is greatly reduced. Any global order gives a correct result; the frequency order is chosen purely for **efficiency**.
+
+---
+
+## B15. Pregel 的超步与终止
+
+**Q:** *What is a superstep, and when does a Pregel computation terminate?*
+
+> In a **superstep**, every **active** vertex reads the messages sent to it in the **previous** superstep, updates its value, and sends messages that will be delivered in the **next** superstep; a **barrier** forces all vertices to finish before the next superstep begins. A vertex may **vote to halt**, becoming **inactive**, but it is **reactivated automatically if a message arrives for it**. The computation terminates when **all vertices are inactive and no messages are in transit**.
+
+---
+
+# Part C · 万能写作模板
+
+## C1. 开头句式（表明你在答什么）
+
+| 用途 | 句式 |
+|---|---|
+| 定义 | `X is ... , that is, ...` |
+| 对比 | `The essential difference is that A ..., whereas B ...` |
+| 原因 | `The reason is that ...` / `This is because ...` |
+| 结果 | `As a result, ...` / `Consequently, ...` |
+| 条件 | `This holds provided that ...` / `... only if ...` |
+| 举例 | `For example, ...` / `A typical case is ...` |
+| 让步 | `Although ..., ...` / `... at the cost of ...` |
+| 结论 | `Therefore ...` / `Hence ...` |
+
+## C2. 高频专业表达（背这些比背句子有用）
+
+| 中文 | 英文 |
+|---|---|
+| 交换律和结合律 | **commutative and associative** |
+| 惰性求值 | **lazily evaluated** / lazy evaluation |
+| 触发计算 | **triggers the computation** |
+| 血统重算 | **recompute from lineage** |
+| 只重算丢失的分区 | **recompute only the lost partition** |
+| 本地聚合 | **local aggregation** on the map side |
+| 减少网络传输 | **reduces network I/O / shuffle volume** |
+| 数据倾斜 | **data skew** |
+| 内存溢出 | **out-of-memory error** |
+| 一趟扫描 | **in a single pass** |
+| 亚线性空间 | **sublinear space** |
+| 低估 / 高估 | **under-estimate / over-estimate** |
+| 假阳性 / 假阴性 | **false positive / false negative** |
+| 误差上界 | the error is **bounded by** ... |
+| 无偏估计 | an **unbiased estimator** of ... |
+| 以…为代价 | **at the cost of** ... |
+| 权衡 | a **trade-off** between ... and ... |
+| 保证 | **guarantees that** ... |
+| 收敛 | **converges to** ... |
+| 平摊/重新分配 | **redistributed uniformly over** ... |
+
+## C3. 答题长度的判断
+
+| 分值 | 写多少 |
+|---|---|
+| 1 分 | 一句话，直接给结论 |
+| 2 分 | 2–3 句：结论 + 一个理由 |
+| 3 分 | 3–5 句，或分 3 条列点 —— **分值几乎等于要点个数** |
+| 4–5 分 | 分点写，每点一句，最后加一句总结/权衡 |
+
+> **黄金规则**：**分值 = 要点数。** 3 分题就找 3 个要点，宁可分成 ①②③ 列出来，也不要写成一大段散文 —— 阅卷是按点给分的。
+
+## C4. 交卷前的自查
+
+1. 每个 **and / also / each / respectively** 后面的那一问，我答了吗？
+2. **Justify / Why / Explain** 的地方，我写 **because** 了吗？
+3. 分点了吗？点数 ≥ 分值了吗？
+4. 专有名词拼对了吗（**commutative**, **associative**, **lineage**, **partitioner**, **teleportation**）？
+5. 有没有该写 assumption 的地方（`Assume that ...`）？
